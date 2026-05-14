@@ -12,8 +12,8 @@ import '../features/conversational/conversational_controller.dart' as conv_ctrl;
 import '../features/conversational/conversational_overlay.dart';
 import '../features/conversational/message_audio_button.dart';
 import '../providers/theme_provider.dart';
-import '../providers/onboarding_provider.dart';      // AGREGAR
-import '../widgets/conversational_tooltip.dart';     // AGREGAR
+import '../providers/onboarding_provider.dart';
+import '../widgets/conversational_tooltip.dart';
 
 // ── PALETA ────────────────────────────────────────────
 const _bg           = Color(0xFF0A0A0A);
@@ -93,6 +93,10 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
   Future<void> _syncQueue = Future.value();
   ProviderSubscription<ChatState>? _chatSub;
 
+  // Mapa local índice → ID en el controller.
+  // Evita depender de getMessages() que no existe en flutter_chat_core 2.9
+  final Map<int, String> _msgIdByIndex = {};
+
   @override
   void initState() {
     super.initState();
@@ -104,7 +108,15 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
 
       _chatSub = ref.listenManual<ChatState>(chatProvider, (prev, next) {
         if (next.messages.length > _syncedCount) {
+          // Mensaje nuevo — insertar normalmente
           _syncMessages(next.messages);
+        } else if (prev != null &&
+            next.messages.isNotEmpty &&
+            prev.messages.isNotEmpty &&
+            next.messages.last.role == app_models.MessageRole.assistant &&
+            next.messages.last.text != prev.messages.last.text) {
+          // Mismo número de mensajes pero el texto cambió → chunk de streaming
+          _updateLastAssistantMessage(next.messages.last.text);
         }
       });
     });
@@ -134,19 +146,51 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
           createdAt: DateTime.now(),
         ),
       );
+      _msgIdByIndex[_syncedCount] = id;
       _syncedCount++;
+    }
+  }
+
+  /// Actualiza el placeholder del asistente con el texto acumulado del stream.
+  /// Usa _msgIdByIndex para no depender de getMessages().
+  /// Actualiza el último mensaje del asistente (para streaming)
+  Future<void> _updateLastAssistantMessage(String text) async {
+    if (_syncedCount == 0) return;
+
+    final lastIndex = _syncedCount - 1;
+    final id = _msgIdByIndex[lastIndex];
+    if (id == null) return;
+
+    try {
+      // Obtenemos el mensaje actual (el "old")
+      final currentMessages = _chatController.messages;
+      if (lastIndex >= currentMessages.length) return;
+
+      final oldMessage = currentMessages[lastIndex];
+
+      // Creamos el mensaje actualizado
+      final updatedMessage = Message.text(
+        id:        id,
+        authorId:  'assistant',
+        text:      text,
+        createdAt: DateTime.now(),
+      );
+
+      await _chatController.updateMessage(oldMessage, updatedMessage);
+    } catch (e) {
+      debugPrint('updateMessage error: $e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final chatState = ref.watch(chatProvider);
-    final notifier  = ref.read(chatProvider.notifier);
-    final isDark    = ref.watch(themeProvider);
-    final convState = ref.watch(conv_ctrl.conversationalProvider);
-    final convCtrl  = ref.read(conv_ctrl.conversationalProvider.notifier);
+    final chatState      = ref.watch(chatProvider);
+    final notifier       = ref.read(chatProvider.notifier);
+    final isDark         = ref.watch(themeProvider);
+    final convState      = ref.watch(conv_ctrl.conversationalProvider);
+    final convCtrl       = ref.read(conv_ctrl.conversationalProvider.notifier);
     final onboardingSeen = ref.watch(onboardingProvider);
-    final isConvActive = convState.isActive;
+    final isConvActive   = convState.isActive;
 
     return Theme(
       data: _appTheme(isDark),
@@ -283,11 +327,8 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
               theme: _chatTheme(isDark),
               backgroundColor: isDark ? _bg : _bgLight,
               builders: Builders(
-                // Bienvenida cuando no hay mensajes
                 emptyChatListBuilder: (context) =>
                     _WelcomeState(isDark: isDark),
-
-                // ── BURBUJA MESSENGER ─────────────────────
                 textMessageBuilder: (
                   context,
                   message,
@@ -298,21 +339,20 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
                   final isAssistant = !isSentByMe;
                   final parts = message.id.split('_');
                   final idx   = parts.length >= 2 ? int.tryParse(parts[1]) : null;
-                  final appMsg = (isAssistant && idx != null && idx < chatState.messages.length)
+                  final appMsg = (isAssistant &&
+                          idx != null &&
+                          idx < chatState.messages.length)
                       ? chatState.messages[idx]
                       : null;
 
-                  // Colores de burbuja
                   final bubbleColor = isSentByMe
                       ? (isDark ? _greenDark : _greenMid)
                       : (isDark ? _surface   : Colors.white);
 
-                  // Color de texto — CORREGIDO: usuario siempre blanco
                   final textColor = isSentByMe
                       ? Colors.white
                       : (isDark ? _greenLight : const Color(0xFF1A3C2E));
 
-                  // Forma messenger: cola en esquina inferior del lado del remitente
                   final bubbleRadius = BorderRadius.only(
                     topLeft:     const Radius.circular(18),
                     topRight:    const Radius.circular(18),
@@ -366,7 +406,11 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
                               height: 1.45,
                             ),
                           ),
-                          if (isAssistant && appMsg != null) ...[
+                          // Botón de audio solo cuando la respuesta está completa
+                          if (isAssistant &&
+                              appMsg != null &&
+                              appMsg.text.isNotEmpty &&
+                              !chatState.isLoading) ...[
                             const SizedBox(height: 8),
                             MessageAudioButton(
                               text:   appMsg.text,
@@ -467,7 +511,6 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
                     onLongPress: chatState.isLoading
                         ? null
                         : () async {
-                            // ✅ Feedback háptico al activar modo conversacional
                             await HapticFeedback.mediumImpact();
                             await convCtrl.start();
                           },
@@ -496,9 +539,10 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
                 ),
               ),
 
+            // ── TOOLTIP ONBOARDING ──────────────────────────
             if (!onboardingSeen && !isConvActive)
               Positioned(
-                bottom: 178, // justo encima del botón mic
+                bottom: 178,
                 right: 16,
                 child: ConversationalTooltip(isDark: isDark),
               ),

@@ -81,38 +81,92 @@ class ChatNotifier extends StateNotifier<ChatState> {
   void newConversation() => state = const ChatState();
 
   // ── Enviar mensaje ────────────────────────────────
+  // ── Enviar mensaje con streaming ──────────────────────
   Future<void> sendMessage(String texto, {bool playTts = true}) async {
     if (texto.trim().isEmpty) return;
 
+    // Agrega el mensaje del usuario al estado inmediatamente
     state = state.copyWith(
-      messages: [...state.messages, Message(text: texto, role: MessageRole.user)],
+      messages: [
+        ...state.messages,
+        Message(text: texto, role: MessageRole.user),
+      ],
       isLoading: true,
       error: null,
     );
 
+    // Placeholder del asistente — se irá completando con los chunks
+    final placeholderIndex = state.messages.length;
+    state = state.copyWith(
+      messages: [
+        ...state.messages,
+        Message(text: '', role: MessageRole.assistant),
+      ],
+    );
+
+    final buffer = StringBuffer();
+    int?   convId;
+    bool   usarRag = false;
+    List<String> fuentes = [];
+
     try {
-      final response = await _chatService.sendMessage(
+      
+      final t0 = DateTime.now();
+      bool _firstChunk = true;
+
+      await for (final event in _chatService.sendMessageStream(
         mensaje:        texto,
         conversationId: state.conversationId,
-      );
+      )) {
+        switch (event) {
+          
+          case StreamEventMeta():
+            convId  = event.conversationId;
+            usarRag = event.usarRag;
+            fuentes = event.fuentes;
+            state   = state.copyWith(conversationId: convId);
 
-      state = state.copyWith(
-        messages: [
-          ...state.messages,
-          Message(
-            text:    response.respuesta,
-            role:    MessageRole.assistant,
-            usedRag: response.usarRag,
-            sources: response.fuentes,
-          ),
-        ],
-        isLoading:      false,
-        conversationId: response.conversationId,
-      );
+          case StreamEventChunk():
+            if (_firstChunk) {
+              debugPrint('[TIMING] Primer chunk texto: ${DateTime.now().difference(t0).inMilliseconds}ms');
+              _firstChunk = false;
+            }
+            // Actualiza el placeholder con cada nuevo fragmento
+            buffer.write(event.text);
+            final updatedMessages = List<Message>.from(state.messages);
+            updatedMessages[placeholderIndex] = Message(
+              text:    buffer.toString(),
+              role:    MessageRole.assistant,
+              usedRag: usarRag,
+              sources: fuentes,
+            );
+            state = state.copyWith(messages: updatedMessages);
 
-      if (playTts) await _playTts(response.respuesta);
+          case StreamEventDone():
+            // Mensaje completo — actualizamos con el texto final
+            final updatedMessages = List<Message>.from(state.messages);
+            updatedMessages[placeholderIndex] = Message(
+              text:    event.fullText,
+              role:    MessageRole.assistant,
+              usedRag: usarRag,
+              sources: fuentes,
+            );
+            state = state.copyWith(
+              messages:  updatedMessages,
+              isLoading: false,
+            );
+            if (playTts) await _playTts(event.fullText);
+        }
+      }
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      // Si falla, elimina el placeholder vacío
+      final msgs = List<Message>.from(state.messages)
+        ..removeAt(placeholderIndex);
+      state = state.copyWith(
+        messages:  msgs,
+        isLoading: false,
+        error:     e.toString(),
+      );
     }
   }
 
