@@ -8,6 +8,7 @@ import '../providers/chat_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/conversation_model.dart';
 import 'chat_screen_new.dart';
+import 'map_screen.dart'; // ← import del mapa
 
 // ── PALETA ────────────────────────────────────────────
 const _greenDark   = Color(0xFF047857);
@@ -15,12 +16,11 @@ const _greenMid    = Color(0xFF16a34a);
 const _greenBright = Color(0xFF05c46b);
 const _greenLight  = Color(0xFF34d399);
 
-// Colores que dependen del tema — se calculan en build()
-Color _bg(bool d)      => d ? const Color(0xFF0A0A0A) : const Color(0xFFF5FFF9);
-Color _surface(bool d) => d ? const Color(0xFF141414) : Colors.white;
-Color _textPrimary(bool d)   => d ? Colors.white          : const Color(0xFF064E3B);
-Color _textSecondary(bool d) => d ? Colors.white54        : Colors.black45;
-Color _border(bool d)  => d
+Color _bg(bool d)            => d ? const Color(0xFF0A0A0A) : const Color(0xFFF5FFF9);
+Color _surface(bool d)       => d ? const Color(0xFF141414) : Colors.white;
+Color _textPrimary(bool d)   => d ? Colors.white             : const Color(0xFF064E3B);
+Color _textSecondary(bool d) => d ? Colors.white54           : Colors.black45;
+Color _border(bool d)        => d
     ? _greenDark.withValues(alpha: 0.2)
     : _greenDark.withValues(alpha: 0.15);
 
@@ -56,7 +56,15 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     });
   }
 
-  Future<void> _confirmDelete(BuildContext context, ConversationModel conv, bool isDark) async {
+  void _openMap() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MapScreen()),
+    );
+  }
+
+  Future<void> _confirmDelete(
+      BuildContext context, ConversationModel conv, bool isDark) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -71,7 +79,8 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
           ),
         ),
         content: Text(
-          '¿Seguro que quieres eliminar "${conv.title.isNotEmpty ? conv.title : 'esta conversación'}"?',
+          '¿Seguro que quieres eliminar '
+          '"${conv.title.isNotEmpty ? conv.title : 'esta conversación'}"?',
           style: TextStyle(color: _textSecondary(isDark), fontSize: 14),
         ),
         actions: [
@@ -146,7 +155,17 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
           ),
         ),
         actions: [
-          // Toggle tema
+          // ── BOTÓN MAPA ────────────────────────────────
+          IconButton(
+            icon: Icon(
+              Icons.map_outlined,
+              color: isDark ? _greenLight : Colors.white,
+            ),
+            tooltip: 'Mapa de destinos',
+            onPressed: _openMap,
+          ),
+
+          // ── TOGGLE TEMA ──────────────────────────────
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: GestureDetector(
@@ -194,7 +213,8 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
               ),
             ),
           ),
-          // Logout
+
+          // ── LOGOUT ───────────────────────────────────
           IconButton(
             icon: Icon(Icons.logout,
                 color: _textSecondary(isDark), size: 20),
@@ -257,10 +277,9 @@ class _ConvTile extends StatelessWidget {
     return Dismissible(
       key: Key('conv_${conv.id}'),
       direction: DismissDirection.endToStart,
-      // confirmDismiss lanza el diálogo de confirmación
       confirmDismiss: (_) async {
         onDelete();
-        return false; // el borrado lo maneja _confirmDelete
+        return false;
       },
       background: Container(
         alignment: Alignment.centerRight,
@@ -290,7 +309,6 @@ class _ConvTile extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // Ícono
               Container(
                 width: 40, height: 40,
                 decoration: BoxDecoration(
@@ -301,7 +319,6 @@ class _ConvTile extends StatelessWidget {
                     color: _greenLight, size: 18),
               ),
               const SizedBox(width: 14),
-              // Título + preview
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -332,7 +349,6 @@ class _ConvTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              // Fecha
               Text(
                 _formatDate(conv.updatedAt),
                 style: TextStyle(

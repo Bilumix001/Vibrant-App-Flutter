@@ -20,11 +20,28 @@ class ConversationalController extends StateNotifier<ConversationalState> {
   final _audioPlayer = AudioPlayer();
   final _recorder    = AudioRecorder();
 
-  bool _stopRequested = false;
-
-  // ✅ FIX INTERRUPCIÓN: bandera para saber si el audio fue interrumpido
-  // por el usuario hablando durante la reproducción.
+  bool _stopRequested    = false;
   bool _speakInterrupted = false;
+
+  // ── CONFIGURACIÓN DE SILENCIO ─────────────────────────
+  // Ajusta estos valores según tu ambiente:
+  //
+  // silenceThresholdDb: nivel por debajo del cual se considera silencio.
+  //   Ambiente silencioso → -45.0
+  //   Ambiente con ruido  → -35.0
+  //
+  // silenceDuration: cuánto tiempo de silencio continuo para parar.
+  //   Respuestas cortas   → 1500ms
+  //   Respuestas largas   → 2500ms
+  //
+  // maxRecordingDuration: límite absoluto de grabación.
+  static const double _silenceThresholdDb    = -40.0;
+  static const int    _silenceDurationMs     = 2000;  // 2s de silencio → para
+  static const int    _maxRecordingSeconds   = 20;    // límite absoluto
+
+  // Tiempo mínimo de grabación antes de empezar a detectar silencio.
+  // Evita que pare inmediatamente si el usuario tarda en empezar a hablar.
+  static const int    _minRecordingMs        = 1500;
 
   ConversationalController(this._ref)
       : super(const ConversationalState());
@@ -33,8 +50,8 @@ class ConversationalController extends StateNotifier<ConversationalState> {
 
   Future<void> start() async {
     if (state.isActive) return;
-    _stopRequested     = false;
-    _speakInterrupted  = false;
+    _stopRequested    = false;
+    _speakInterrupted = false;
     await _loop();
   }
 
@@ -42,10 +59,9 @@ class ConversationalController extends StateNotifier<ConversationalState> {
     _stopRequested = true;
     await _audioPlayer.stop();
     if (await _recorder.isRecording()) await _recorder.stop();
-    state = const ConversationalState(); // idle
+    state = const ConversationalState();
   }
 
-  /// Silencia el micrófono durante la grabación.
   Future<void> toggleMute() async {
     if (await _recorder.isRecording()) {
       await _recorder.pause();
@@ -58,16 +74,13 @@ class ConversationalController extends StateNotifier<ConversationalState> {
 
   Future<void> _loop() async {
     while (!_stopRequested) {
-
-      // 1. ESCUCHAR
-      // Si el asistente estaba hablando y se interrumpió, el audio ya
-      // fue detenido en _listenDuringSpeak(); simplemente continuamos.
       _speakInterrupted = false;
+
       final audioPath = await _listen();
       if (_stopRequested || audioPath == null) break;
 
-      // 2. TRANSCRIBIR
       state = state.copyWith(status: ConversationalStatus.processing);
+
       String transcription;
       try {
         transcription = await _sttService.transcribe(audioPath);
@@ -88,16 +101,12 @@ class ConversationalController extends StateNotifier<ConversationalState> {
         return;
       }
 
-      // 3. ENVIAR AL CHAT
-      // playTts: false → el TTS automático de chatProvider está desactivado;
-      // lo manejamos nosotros para poder interrumpirlo.
       await _ref
           .read(chatProvider.notifier)
           .sendMessage(transcription, playTts: false);
 
       if (_stopRequested) break;
 
-      // 4. REPRODUCIR RESPUESTA
       final messages = _ref.read(chatProvider).messages;
       final lastAssistant = messages.lastWhere(
         (m) => m.role == MessageRole.assistant,
@@ -107,8 +116,6 @@ class ConversationalController extends StateNotifier<ConversationalState> {
       await _speak(lastAssistant.text);
       if (_stopRequested) break;
 
-      // Si el usuario interrumpió mientras hablaba, volvemos a escuchar
-      // de inmediato sin pausa extra.
       if (!_speakInterrupted) {
         await Future.delayed(const Duration(milliseconds: 350));
       }
@@ -117,11 +124,8 @@ class ConversationalController extends StateNotifier<ConversationalState> {
     if (!_stopRequested) state = const ConversationalState();
   }
 
-  // ── HELPERS ───────────────────────────────────────────
+  // ── ESCUCHAR CON DETECCIÓN DE SILENCIO ───────────────
 
-  /// Graba audio del usuario.
-  /// Mientras graba, si el asistente todavía estuviera hablando
-  /// (caso de carrera), lo detiene primero.
   Future<String?> _listen() async {
     final permission = await Permission.microphone.request();
     if (!permission.isGranted) {
@@ -129,7 +133,6 @@ class ConversationalController extends StateNotifier<ConversationalState> {
       return null;
     }
 
-    // Detener cualquier reproducción activa
     await _audioPlayer.stop();
 
     state = state.copyWith(
@@ -143,15 +146,15 @@ class ConversationalController extends StateNotifier<ConversationalState> {
     try {
       await _recorder.start(
         const RecordConfig(
-          encoder:     AudioEncoder.wav,
+          encoder:     AudioEncoder.opus,
           sampleRate:  16000,
           numChannels: 1,
         ),
         path: path,
       );
 
-      // Graba máximo 15 s
-      await Future.delayed(const Duration(seconds: 15));
+      // Espera hasta silencio o límite máximo
+      await _recordUntilSilence();
 
       if (await _recorder.isRecording()) await _recorder.stop();
       return path;
@@ -161,10 +164,69 @@ class ConversationalController extends StateNotifier<ConversationalState> {
     }
   }
 
-  /// Reproduce el TTS de la respuesta del asistente.
-  /// ✅ FIX INTERRUPCIÓN: mientras reproduce, escucha en paralelo si el
-  /// usuario empieza a hablar (detecta energía del micrófono via Record).
-  /// Si hay voz, detiene el audio y salta directo a grabar.
+  /// Para de grabar cuando detecta silencio sostenido.
+  ///
+  /// Lógica:
+  /// 1. Espera _minRecordingMs antes de empezar a chequear silencio
+  ///    (para que el usuario tenga tiempo de empezar a hablar).
+  /// 2. Chequea la amplitud cada 100ms.
+  /// 3. Si la amplitud está por debajo de _silenceThresholdDb durante
+  ///    _silenceDurationMs consecutivos → para.
+  /// 4. Si el usuario vuelve a hablar, resetea el contador de silencio.
+  /// 5. Límite absoluto de _maxRecordingSeconds.
+  Future<void> _recordUntilSilence() async {
+    const checkInterval  = Duration(milliseconds: 100);
+    final silenceChecks  = _silenceDurationMs ~/ 100; // cuántos checks = silencio
+    final deadline       = DateTime.now().add(
+        Duration(seconds: _maxRecordingSeconds));
+
+    int  silenceCount  = 0;
+    bool voiceDetected = false; // ¿el usuario ya habló algo?
+
+    // Fase 1: esperar el mínimo antes de detectar silencio
+    await Future.delayed(Duration(milliseconds: _minRecordingMs));
+
+    // Fase 2: detección activa
+    while (!_stopRequested && DateTime.now().isBefore(deadline)) {
+      await Future.delayed(checkInterval);
+
+      try {
+        final amp = await _recorder.getAmplitude();
+        final db  = amp.current;
+
+        if (db > _silenceThresholdDb) {
+          // Hay voz
+          voiceDetected = true;
+          silenceCount  = 0;
+          debugPrint('[MIC] Voz detectada: ${db.toStringAsFixed(1)} dBFS');
+        } else {
+          // Silencio
+          if (voiceDetected) {
+            // Solo contamos silencio si el usuario ya habló algo
+            silenceCount++;
+            debugPrint(
+              '[MIC] Silencio: ${db.toStringAsFixed(1)} dBFS '
+              '($silenceCount/$silenceChecks)',
+            );
+
+            if (silenceCount >= silenceChecks) {
+              debugPrint('[MIC] Silencio sostenido → parando grabación');
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Amplitude error: $e');
+        // Si falla la lectura de amplitud, esperar el tiempo máximo
+        await Future.delayed(
+            Duration(seconds: _maxRecordingSeconds - _minRecordingMs ~/ 1000));
+        break;
+      }
+    }
+  }
+
+  // ── HABLAR ────────────────────────────────────────────
+
   Future<void> _speak(String texto) async {
     state = state.copyWith(status: ConversationalStatus.speaking);
     try {
@@ -172,36 +234,30 @@ class ConversationalController extends StateNotifier<ConversationalState> {
       await _audioPlayer.setFilePath(path);
       await _audioPlayer.play();
 
-      // Espera a que termine O a que el usuario interrumpa hablando
       await Future.any([
-        // Camino 1: reproducción termina sola
         _audioPlayer.playerStateStream.firstWhere(
           (s) =>
               s.processingState == ProcessingState.completed ||
               s.processingState == ProcessingState.idle,
         ),
-        // Camino 2: el usuario empieza a hablar (detección de voz)
         _detectVoiceActivity(),
       ]);
 
-      // Si llegamos aquí por voz, detenemos el audio
       if (_audioPlayer.playing) {
         _speakInterrupted = true;
         await _audioPlayer.stop();
       }
-
     } catch (e) {
       debugPrint('TTS error: $e');
     }
   }
 
-  /// Detecta actividad de voz del micrófono mientras el asistente habla.
-  /// Usa la amplitud del micrófono (Record v5 API).
-  /// Resuelve el Future cuando detecta voz sostenida por ≥300 ms.
+  /// Detecta si el usuario empieza a hablar mientras el asistente habla.
+  /// Resuelve el Future cuando detecta voz sostenida por ≥300ms.
   Future<void> _detectVoiceActivity() async {
     const checkInterval  = Duration(milliseconds: 100);
-    const voiceThreshold = -30.0; // dBFS — ajustar según el dispositivo
-    const confirmCount   = 3;     // 3 × 100ms = 300ms de voz continua
+    const voiceThreshold = -30.0;
+    const confirmCount   = 3; // 3 × 100ms = 300ms de voz continua
 
     int consecutive = 0;
 
@@ -211,14 +267,12 @@ class ConversationalController extends StateNotifier<ConversationalState> {
         final amp = await _recorder.getAmplitude();
         if (amp.current > voiceThreshold) {
           consecutive++;
-          if (consecutive >= confirmCount) return; // voz detectada
+          if (consecutive >= confirmCount) return;
         } else {
           consecutive = 0;
         }
       } catch (_) {
-        // El micrófono puede no estar disponible mientras el player reproduce;
-        // en ese caso simplemente no interrumpimos.
-        return Future.value();
+        return;
       }
     }
   }

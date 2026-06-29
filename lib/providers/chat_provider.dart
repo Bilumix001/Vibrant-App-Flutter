@@ -9,6 +9,7 @@ import '../services/chat_service.dart';
 import '../services/tts_service.dart';
 import '../services/stt_service.dart';
 import '../services/conversation_service.dart';
+import '../utils/request_timer.dart';
 
 class ChatState {
   final List<Message> messages;
@@ -83,9 +84,14 @@ class ChatNotifier extends StateNotifier<ChatState> {
   // ── Enviar mensaje ────────────────────────────────
   // ── Enviar mensaje con streaming ──────────────────────
   Future<void> sendMessage(String texto, {bool playTts = true}) async {
+    // Detener cualquier audio en curso antes de procesar nuevo mensaje
+    await _audioPlayer.stop();
+    
     if (texto.trim().isEmpty) return;
-
-    // Agrega el mensaje del usuario al estado inmediatamente
+ 
+    final timer = RequestTimer('chat_send'); // ← agregar import arriba:
+    // import '../utils/request_timer.dart';
+ 
     state = state.copyWith(
       messages: [
         ...state.messages,
@@ -94,8 +100,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       isLoading: true,
       error: null,
     );
-
-    // Placeholder del asistente — se irá completando con los chunks
+ 
     final placeholderIndex = state.messages.length;
     state = state.copyWith(
       messages: [
@@ -103,35 +108,27 @@ class ChatNotifier extends StateNotifier<ChatState> {
         Message(text: '', role: MessageRole.assistant),
       ],
     );
-
+ 
     final buffer = StringBuffer();
     int?   convId;
     bool   usarRag = false;
     List<String> fuentes = [];
-
+ 
     try {
-      
-      final t0 = DateTime.now();
-      bool _firstChunk = true;
-
       await for (final event in _chatService.sendMessageStream(
         mensaje:        texto,
         conversationId: state.conversationId,
       )) {
         switch (event) {
-          
           case StreamEventMeta():
             convId  = event.conversationId;
             usarRag = event.usarRag;
             fuentes = event.fuentes;
             state   = state.copyWith(conversationId: convId);
-
+            timer.mark('meta_recibido');
+ 
           case StreamEventChunk():
-            if (_firstChunk) {
-              debugPrint('[TIMING] Primer chunk texto: ${DateTime.now().difference(t0).inMilliseconds}ms');
-              _firstChunk = false;
-            }
-            // Actualiza el placeholder con cada nuevo fragmento
+            if (buffer.isEmpty) timer.mark('primer_chunk_texto');
             buffer.write(event.text);
             final updatedMessages = List<Message>.from(state.messages);
             updatedMessages[placeholderIndex] = Message(
@@ -141,9 +138,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
               sources: fuentes,
             );
             state = state.copyWith(messages: updatedMessages);
-
+ 
           case StreamEventDone():
-            // Mensaje completo — actualizamos con el texto final
+            timer.mark('texto_completo');
             final updatedMessages = List<Message>.from(state.messages);
             updatedMessages[placeholderIndex] = Message(
               text:    event.fullText,
@@ -155,11 +152,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
               messages:  updatedMessages,
               isLoading: false,
             );
-            if (playTts) await _playTts(event.fullText);
+            if (playTts) {
+              _playTts(event.fullText, timer: timer);
+            } else {
+              timer.done();
+            }
         }
       }
     } catch (e) {
-      // Si falla, elimina el placeholder vacío
+      timer.done();
       final msgs = List<Message>.from(state.messages)
         ..removeAt(placeholderIndex);
       state = state.copyWith(
@@ -170,13 +171,18 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
   }
 
-  Future<void> _playTts(String texto) async {
+
+  Future<void> _playTts(String texto, {RequestTimer? timer}) async {
     try {
       state = state.copyWith(isPlayingAudio: true);
       final path = await _ttsService.getAudioPath(texto);
+      timer?.mark('tts_archivo_listo');
       await _audioPlayer.setFilePath(path);
       await _audioPlayer.play();
+      timer?.mark('tts_reproduccion_iniciada');
+      timer?.done();
     } catch (e) {
+      timer?.done();
       debugPrint('Audio no disponible: $e');
     } finally {
       state = state.copyWith(isPlayingAudio: false);
@@ -210,7 +216,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final path = '${dir.path}/recording.wav';
     await _recorder.start(
       const RecordConfig(
-        encoder:     AudioEncoder.wav,
+        encoder:     AudioEncoder.opus,
         sampleRate:  16000,
         numChannels: 1,
       ),
@@ -220,14 +226,23 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   Future<void> stopRecordingAndSend() async {
+    final timer = RequestTimer('stt_flow');
+ 
     final path = await _recorder.stop();
     state = state.copyWith(isRecording: false);
     if (path == null) return;
+ 
+    timer.mark('grabacion_detenida');
+ 
     state = state.copyWith(isLoading: true);
     try {
       final texto = await _sttService.transcribe(path);
-      await sendMessage(texto);
+      timer.mark('stt_transcripcion');
+ 
+      await sendMessage(texto); // sendMessage tiene su propio timer interno
+      timer.done();
     } catch (e) {
+      timer.done();
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
