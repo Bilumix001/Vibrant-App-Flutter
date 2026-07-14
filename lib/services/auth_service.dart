@@ -71,8 +71,19 @@ class AuthService {
     final res = await http.post(
       Uri.parse('${AppConfig.baseUrl}/api/auth/login/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+      }),
     );
+
+    // Imprime toda la respuesta del servidor
+    print("===== RESPUESTA DEL SERVIDOR =====");
+    print("Status Code: ${res.statusCode}");
+    print("Headers: ${res.headers}");
+    print("Body:");
+    print(utf8.decode(res.bodyBytes));
+    print("==================================");
 
     final data = jsonDecode(utf8.decode(res.bodyBytes));
 

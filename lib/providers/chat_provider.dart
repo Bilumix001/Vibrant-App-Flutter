@@ -216,7 +216,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final path = '${dir.path}/recording.wav';
     await _recorder.start(
       const RecordConfig(
-        encoder:     AudioEncoder.opus,
+        encoder:     AudioEncoder.wav,
         sampleRate:  16000,
         numChannels: 1,
       ),

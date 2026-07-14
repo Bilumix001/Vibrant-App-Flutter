@@ -146,7 +146,7 @@ class ConversationalController extends StateNotifier<ConversationalState> {
     try {
       await _recorder.start(
         const RecordConfig(
-          encoder:     AudioEncoder.opus,
+          encoder:     AudioEncoder.wav,
           sampleRate:  16000,
           numChannels: 1,
         ),

@@ -16,7 +16,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.demo"
+    namespace = "com.vibrant.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -30,7 +30,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.demo"
+        applicationId = "com.vibrant.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
