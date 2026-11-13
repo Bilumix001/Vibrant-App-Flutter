@@ -93,8 +93,6 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
   Future<void> _syncQueue = Future.value();
   ProviderSubscription<ChatState>? _chatSub;
 
-  // Mapa local índice → ID en el controller.
-  // Evita depender de getMessages() que no existe en flutter_chat_core 2.9
   final Map<int, String> _msgIdByIndex = {};
 
   @override
@@ -107,15 +105,19 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
       if (initial.isNotEmpty) _syncMessages(initial);
 
       _chatSub = ref.listenManual<ChatState>(chatProvider, (prev, next) {
+        // La lista se redujo o se reinició: reconstruir todo
+        if (next.messages.length < _syncedCount) {
+          _resetAndSync(next.messages);
+          return;
+        }
+
         if (next.messages.length > _syncedCount) {
-          // Mensaje nuevo — insertar normalmente
           _syncMessages(next.messages);
         } else if (prev != null &&
             next.messages.isNotEmpty &&
             prev.messages.isNotEmpty &&
             next.messages.last.role == app_models.MessageRole.assistant &&
             next.messages.last.text != prev.messages.last.text) {
-          // Mismo número de mensajes pero el texto cambió → chunk de streaming
           _updateLastAssistantMessage(next.messages.last.text);
         }
       });
@@ -151,9 +153,17 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
     }
   }
 
-  /// Actualiza el placeholder del asistente con el texto acumulado del stream.
-  /// Usa _msgIdByIndex para no depender de getMessages().
-  /// Actualiza el último mensaje del asistente (para streaming)
+  Future<void> _resetAndSync(List<app_models.Message> messages) {
+    _syncQueue = _syncQueue.then((_) async {
+      if (!mounted) return;
+      await _chatController.setMessages([]);
+      _msgIdByIndex.clear();
+      _syncedCount = 0;
+      await _doSync(messages);
+    });
+    return _syncQueue;
+  }
+
   Future<void> _updateLastAssistantMessage(String text) async {
     if (_syncedCount == 0) return;
 
@@ -162,13 +172,11 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
     if (id == null) return;
 
     try {
-      // Obtenemos el mensaje actual (el "old")
       final currentMessages = _chatController.messages;
       if (lastIndex >= currentMessages.length) return;
 
       final oldMessage = currentMessages[lastIndex];
 
-      // Creamos el mensaje actualizado
       final updatedMessage = Message.text(
         id:        id,
         authorId:  'assistant',
@@ -259,53 +267,6 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
                               color: _greenLight, size: 20),
                         )
                       : const SizedBox.shrink(key: ValueKey('no-audio')),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 14),
-                  child: GestureDetector(
-                    onTap: () =>
-                        ref.read(themeProvider.notifier).state = !isDark,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                      width: 50, height: 26,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(13),
-                        color: isDark
-                            ? _greenDark.withValues(alpha: 0.4)
-                            : Colors.white.withValues(alpha: 0.3),
-                        border: Border.all(
-                          color: isDark
-                              ? _greenBright.withValues(alpha: 0.5)
-                              : Colors.white.withValues(alpha: 0.6),
-                          width: 1,
-                        ),
-                      ),
-                      child: AnimatedAlign(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                        alignment: isDark
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.all(3),
-                          width: 20, height: 20,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: isDark
-                                  ? [_greenDark, _greenBright]
-                                  : [_greenLight, _greenMid],
-                            ),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            isDark ? Icons.dark_mode : Icons.light_mode,
-                            size: 12, color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -406,7 +367,6 @@ class _ChatScreenNewState extends ConsumerState<ChatScreenNew> {
                               height: 1.45,
                             ),
                           ),
-                          // Botón de audio solo cuando la respuesta está completa
                           if (isAssistant &&
                               appMsg != null &&
                               appMsg.text.isNotEmpty &&

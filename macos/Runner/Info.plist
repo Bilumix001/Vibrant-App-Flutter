@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Vibrant App necesita acceder al micrófono para grabar mensajes de voz y procesar audio.</string>
 </dict>
 </plist>

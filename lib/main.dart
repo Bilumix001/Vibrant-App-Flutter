@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/auth_screen.dart';
-import 'screens/conversations_screen.dart';
+import 'screens/main_shell.dart';
 import 'screens/splash_screen.dart';
 
 void main() {
@@ -26,7 +26,7 @@ class MyApp extends ConsumerWidget {
       home: authState.isChecking
           ? const SplashScreen()
           : authState.isAuthenticated
-              ? const ConversationsScreen()
+              ? const MainShell()
               : const AuthScreen(),
     );
   }

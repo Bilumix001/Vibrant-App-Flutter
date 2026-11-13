@@ -1,28 +1,28 @@
 // lib/screens/conversations_screen.dart
+// NOTA: esta pantalla ya NO tiene su propio Scaffold/AppBar/FAB.
+// Ahora vive dentro de `MainShell` (ver main_shell.dart), que le provee
+// el header, el drawer, el bottom nav y el botón "Nuevo chat".
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/auth_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/conversation_model.dart';
 import 'chat_screen_new.dart';
-import 'map_screen.dart'; // ← import del mapa
 
 // ── PALETA ────────────────────────────────────────────
 const _greenDark   = Color(0xFF047857);
-const _greenMid    = Color(0xFF16a34a);
 const _greenBright = Color(0xFF05c46b);
 const _greenLight  = Color(0xFF34d399);
 
-Color _bg(bool d)            => d ? const Color(0xFF0A0A0A) : const Color(0xFFF5FFF9);
-Color _surface(bool d)       => d ? const Color(0xFF141414) : Colors.white;
+Color _bg(bool d)            => d ? const Color(0xFF141414) : const Color(0xFFF5FFF9);
+Color _surface(bool d)       => d ? const Color(0xFF141414) : const Color(0xFFE8FFF2);
 Color _textPrimary(bool d)   => d ? Colors.white             : const Color(0xFF064E3B);
 Color _textSecondary(bool d) => d ? Colors.white54           : Colors.black45;
 Color _border(bool d)        => d
-    ? _greenDark.withValues(alpha: 0.2)
-    : _greenDark.withValues(alpha: 0.15);
+    ? const Color(0xFF047857)
+    : const Color(0xFF34D399);
 
 class ConversationsScreen extends ConsumerStatefulWidget {
   const ConversationsScreen({super.key});
@@ -54,13 +54,6 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     ).then((_) {
       ref.read(conversationProvider.notifier).load();
     });
-  }
-
-  void _openMap() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const MapScreen()),
-    );
   }
 
   Future<void> _confirmDelete(
@@ -106,135 +99,12 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
     final convState = ref.watch(conversationProvider);
     final isDark    = ref.watch(themeProvider);
-    final user      = authState.user;
 
-    return Scaffold(
-      backgroundColor: _bg(isDark),
-      appBar: AppBar(
-        backgroundColor: _bg(isDark),
-        elevation: 0,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(0.8),
-          child: Container(
-            height: 0.8,
-            color: _greenDark.withValues(alpha: isDark ? 0.35 : 0.2),
-          ),
-        ),
-        title: ShaderMask(
-          shaderCallback: (b) => const LinearGradient(
-            colors: [_greenLight, _greenBright],
-          ).createShader(b),
-          child: const Text(
-            'Vibrant App',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              color: Colors.white,
-            ),
-          ),
-        ),
-        centerTitle: false,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: CircleAvatar(
-            backgroundColor: _greenDark,
-            radius: 18,
-            child: Text(
-              user?.name.isNotEmpty == true
-                  ? user!.name[0].toUpperCase()
-                  : '?',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-              ),
-            ),
-          ),
-        ),
-        actions: [
-          // ── BOTÓN MAPA ────────────────────────────────
-          IconButton(
-            icon: Icon(
-              Icons.map_outlined,
-              color: isDark ? _greenLight : Colors.white,
-            ),
-            tooltip: 'Mapa de destinos',
-            onPressed: _openMap,
-          ),
-
-          // ── TOGGLE TEMA ──────────────────────────────
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () =>
-                  ref.read(themeProvider.notifier).state = !isDark,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                width: 50, height: 26,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(13),
-                  color: isDark
-                      ? _greenDark.withValues(alpha: 0.4)
-                      : _greenMid.withValues(alpha: 0.15),
-                  border: Border.all(
-                    color: isDark
-                        ? _greenBright.withValues(alpha: 0.5)
-                        : _greenDark.withValues(alpha: 0.4),
-                    width: 1,
-                  ),
-                ),
-                child: AnimatedAlign(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  alignment: isDark
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.all(3),
-                    width: 20, height: 20,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: isDark
-                            ? [_greenDark, _greenBright]
-                            : [_greenLight, _greenMid],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      isDark ? Icons.dark_mode : Icons.light_mode,
-                      size: 12, color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // ── LOGOUT ───────────────────────────────────
-          IconButton(
-            icon: Icon(Icons.logout,
-                color: _textSecondary(isDark), size: 20),
-            tooltip: 'Cerrar sesión',
-            onPressed: () => ref.read(authProvider.notifier).logout(),
-          ),
-        ],
-      ),
-
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openChat(),
-        backgroundColor: _greenDark,
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text(
-          'Nuevo chat',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
-      ),
-
-      body: convState.isLoading
+    return Container(
+      color: _bg(isDark),
+      child: convState.isLoading
           ? Center(
               child: CircularProgressIndicator(color: _greenBright),
             )
@@ -315,8 +185,11 @@ class _ConvTile extends StatelessWidget {
                   shape: BoxShape.circle,
                   color: _greenDark.withValues(alpha: isDark ? 0.2 : 0.12),
                 ),
-                child: Icon(Icons.chat_bubble_outline,
-                    color: _greenLight, size: 18),
+                clipBehavior: Clip.antiAlias,
+                child: Image.asset(
+                  'assets/images/withoutImage.png',
+                  fit: BoxFit.cover,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(

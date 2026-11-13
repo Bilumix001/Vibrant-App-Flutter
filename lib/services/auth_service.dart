@@ -1,11 +1,18 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../Config/app_config.dart';
 import '../models/user_model.dart';
 
 class AuthService {
-  static const _storage     = FlutterSecureStorage();
+  static final FlutterSecureStorage _storage = Platform.isMacOS
+    ? const FlutterSecureStorage(
+        mOptions: MacOsOptions(
+          useDataProtectionKeyChain: false,
+        ),
+      )
+    : const FlutterSecureStorage();
   static const _keyAccess   = 'access_token';
   static const _keyRefresh  = 'refresh_token';
 
@@ -76,14 +83,6 @@ class AuthService {
         'password': password,
       }),
     );
-
-    // Imprime toda la respuesta del servidor
-    print("===== RESPUESTA DEL SERVIDOR =====");
-    print("Status Code: ${res.statusCode}");
-    print("Headers: ${res.headers}");
-    print("Body:");
-    print(utf8.decode(res.bodyBytes));
-    print("==================================");
 
     final data = jsonDecode(utf8.decode(res.bodyBytes));
 

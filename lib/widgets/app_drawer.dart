@@ -3,6 +3,7 @@
 // Incluye: info de usuario, acceso rápido a las últimas 5 conversaciones,
 // acceso al mapa, toggle de tema y cerrar sesión.
 
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -21,19 +22,19 @@ const _greenBright = Color(0xFF05c46b);
 const _greenLight  = Color(0xFF34d399);
 
 // Colores propios del drawer (extraídos del diseño Figma)
-const _drawerBgLight   = Color(0xFFADB5BD);
-const _itemBgLight     = Color(0xFFACB4BC);
-const _itemActiveLight = Color(0xFF6EC5AA);
-const _mapBtnLight     = Color(0xFF14BA83);
-const _toggleTrackOn   = Color(0xFF54BE90);
+const _drawerBgLight = Color(0xFFADB5BD);
+const _drawerBgDark  = Color(0xFF141414);
 
-// Equivalentes para modo oscuro, coherentes con la paleta ya usada en el
-// resto de la app (no había mockup oscuro del drawer, así que se deriva
-// del mismo esquema verde/negro que usan chat_screen_new y map_screen).
-const _drawerBgDark   = Color(0xFF141414);
-const _itemBgDark     = Color(0xFF1F1F1F);
-const _itemActiveDark = Color(0xFF0B4D3A);
-const _mapBtnDark     = Color(0xFF047857);
+const _shadowColorLight = Color(0xFF000000);
+const _shadowColorDark  = Color(0xFFF5FFF9);
+
+// Común a ambos temas
+const _textAccent       = Color(0xFF166534); // "Usuario Vibrant", nombre, títulos de sección
+const _convPillBg       = Color(0xFFADB5BD); // fondo píldora de conversación
+const _convPillBorder   = Color(0xFF7B7E89);
+const _convPillText     = Color(0xFF7B7E89);
+const _avatarGradient   = [Color(0xFF34D399), Color(0xFF166534)];
+const _mapPillTextColor = Color(0xFFF5FFF9);
 
 class AppDrawer extends ConsumerStatefulWidget {
   const AppDrawer({super.key});
@@ -111,202 +112,271 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
     final convState = ref.watch(conversationProvider);
     final last5     = convState.conversations.take(5).toList();
 
-    final bg         = isDark ? _drawerBgDark   : _drawerBgLight;
-    final itemBg      = isDark ? _itemBgDark     : _itemBgLight;
-    final mapBtnColor = isDark ? _mapBtnDark     : _mapBtnLight;
-    final textPrimary = isDark ? Colors.white    : const Color(0xFF0B2E22);
-    final textMuted   = isDark ? Colors.white60  : const Color(0xFF3A4A44);
+    final bg          = isDark ? _drawerBgDark    : _drawerBgLight;
+    final shadowColor = isDark ? _shadowColorDark : _shadowColorLight;
+
+    const drawerRadius = BorderRadius.only(
+      topRight: Radius.circular(40),
+      bottomRight: Radius.circular(40),
+    );
 
     return Drawer(
-      backgroundColor: bg,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-
-              // ── HEADER: AVATAR + NOMBRE ───────────────────
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  CircleAvatar(
-                    backgroundColor: _greenDark,
-                    radius: 32,
-                    child: Text(
-                      user?.name.isNotEmpty == true
-                          ? user!.name[0].toUpperCase()
-                          : '?',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 26,
-                      ),
-                    ),
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      shape: const RoundedRectangleBorder(borderRadius: drawerRadius),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // ── SOMBRA ────────────────────────────────────
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: drawerRadius,
+                boxShadow: [
+                  BoxShadow(
+                    color: shadowColor.withValues(alpha: 0.25),
+                    offset: const Offset(4, 4),
+                    blurRadius: 10,
+                    spreadRadius: 5,
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
+                ],
+              ),
+            ),
+          ),
+
+          // ── FONDO CON BLUR ────────────────────────────
+          ClipRRect(
+            borderRadius: drawerRadius,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 32, sigmaY: 32),
+              child: Container(
+                color: bg.withValues(alpha: 0.25),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Usuario Vibrant',
+
+                        // ── HEADER: AVATAR + NOMBRE ───────────────────
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 64,
+                              height: 64,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: _avatarGradient,
+                                ),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                user?.name.isNotEmpty == true
+                                    ? user!.name[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 26,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Usuario Vibrant',
+                                    style: TextStyle(
+                                      color: _textAccent,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    user?.name ?? '',
+                                    style: const TextStyle(
+                                      color: _textAccent,
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 32),
+
+                        // ── NAVEGACIÓN PRINCIPAL ──────────────────────
+                        const Text(
+                          'Navegación principal',
                           style: TextStyle(
-                            color: textMuted,
-                            fontSize: 13,
+                            color: _textAccent,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          user?.name ?? '',
+                        const SizedBox(height: 16),
+
+                        // Conversaciones (título → tab de conversaciones)
+                        GestureDetector(
+                          onTap: () => _goToConversations(context),
+                          child: const Text(
+                            'Conversaciones',
+                            style: TextStyle(
+                              color: _textAccent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Últimas 5 conversaciones
+                        if (last5.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              'Sin conversaciones aún',
+                              style: TextStyle(
+                                  color: _convPillText.withValues(alpha: 0.8),
+                                  fontSize: 12),
+                            ),
+                          )
+                        else
+                          ...last5.map((conv) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _DrawerPill(
+                                  label: conv.title.isNotEmpty
+                                      ? conv.title
+                                      : 'Sin título',
+                                  background:
+                                      _convPillBg.withValues(alpha: 0.25),
+                                  borderColor: _convPillBorder,
+                                  textColor: _mapPillTextColor,
+                                  onTap: () => _openConversation(context, conv),
+                                ),
+                              )),
+
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Mapa Geográfico',
                           style: TextStyle(
-                            color: textPrimary,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            height: 1.25,
+                            color: _textAccent,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        _DrawerPill(
+                          label: '¡Conoce el Perú como nunca antes!',
+                          gradient: const LinearGradient(
+                            colors: _avatarGradient,
+                          ),
+                          textColor: _mapPillTextColor,
+                          onTap: () => _goToMap(context),
+                        ),
+
+                        const Spacer(),
+
+                        // ── TEMA ───────────────────────────────────────
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Tema',
+                              style: TextStyle(
+                                color: isDark ? _greenLight : _greenDark,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            // Switch reutilizado de conversations_screen.dart
+                            GestureDetector(
+                              onTap: () => ref
+                                  .read(themeProvider.notifier)
+                                  .state = !isDark,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                                width: 50, height: 26,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(13),
+                                  color: isDark
+                                      ? _greenDark.withValues(alpha: 0.4)
+                                      : _greenMid.withValues(alpha: 0.15),
+                                  border: Border.all(
+                                    color: isDark
+                                        ? _greenBright.withValues(alpha: 0.5)
+                                        : _greenDark.withValues(alpha: 0.4),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: AnimatedAlign(
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeInOut,
+                                  alignment: isDark
+                                      ? Alignment.centerRight
+                                      : Alignment.centerLeft,
+                                  child: Container(
+                                    margin: const EdgeInsets.all(3),
+                                    width: 20, height: 20,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: isDark
+                                            ? [_greenDark, _greenBright]
+                                            : [_greenLight, _greenMid],
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      isDark
+                                          ? Icons.dark_mode
+                                          : Icons.light_mode,
+                                      size: 12, color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // ── CERRAR SESIÓN ────────────────────────────
+                        GestureDetector(
+                          onTap: () => _confirmLogout(context),
+                          child: Row(
+                            children: const [
+                              Text(
+                                'Cerrar Sesión',
+                                style: TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Icon(Icons.logout,
+                                  color: Colors.redAccent, size: 18),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
-
-              const SizedBox(height: 32),
-
-              // ── NAVEGACIÓN PRINCIPAL ──────────────────────
-              Text(
-                'Navegación principal',
-                style: TextStyle(
-                  color: isDark ? _greenLight : _greenDark,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(height: 16),
-
-              // Conversaciones (título → tab de conversaciones)
-              GestureDetector(
-                onTap: () => _goToConversations(context),
-                child: Text(
-                  'Conversaciones',
-                  style: TextStyle(
-                    color: textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // Últimas 5 conversaciones
-              if (last5.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Text(
-                    'Sin conversaciones aún',
-                    style: TextStyle(color: textMuted, fontSize: 12),
-                  ),
-                )
-              else
-                ...last5.map((conv) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _DrawerPill(
-                        label: conv.title.isNotEmpty
-                            ? conv.title
-                            : 'Sin título',
-                        background: itemBg,
-                        textColor: textPrimary,
-                        onTap: () => _openConversation(context, conv),
-                      ),
-                    )),
-
-              const SizedBox(height: 16),
-              Text(
-                'Mapa Geográfico',
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              _DrawerPill(
-                label: '¡Conoce el Perú como nunca antes!',
-                background: mapBtnColor,
-                textColor: Colors.white,
-                bordered: true,
-                onTap: () => _goToMap(context),
-              ),
-
-              const Spacer(),
-
-              // ── TEMA ───────────────────────────────────────
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Tema',
-                    style: TextStyle(
-                      color: isDark ? _greenLight : _greenDark,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () =>
-                        ref.read(themeProvider.notifier).state = !isDark,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      width: 50,
-                      height: 28,
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        color: _toggleTrackOn.withValues(alpha: 0.9),
-                      ),
-                      child: AnimatedAlign(
-                        duration: const Duration(milliseconds: 250),
-                        alignment: isDark
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          width: 22,
-                          height: 22,
-                          decoration: const BoxDecoration(
-                            color: _greenBright,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 20),
-
-              // ── CERRAR SESIÓN ────────────────────────────
-              GestureDetector(
-                onTap: () => _confirmLogout(context),
-                child: Row(
-                  children: const [
-                    Text(
-                      'Cerrar Sesión',
-                      style: TextStyle(
-                        color: Colors.redAccent,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Icon(Icons.logout, color: Colors.redAccent, size: 18),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -315,17 +385,19 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
 // ── PÍLDORA REUTILIZABLE (items de conversación / botón de mapa) ─────
 class _DrawerPill extends StatelessWidget {
   final String label;
-  final Color background;
+  final Color? background;
+  final Gradient? gradient;
+  final Color? borderColor;
   final Color textColor;
-  final bool bordered;
   final VoidCallback onTap;
 
   const _DrawerPill({
     required this.label,
-    required this.background,
     required this.textColor,
     required this.onTap,
-    this.bordered = false,
+    this.background,
+    this.gradient,
+    this.borderColor,
   });
 
   @override
@@ -336,10 +408,11 @@ class _DrawerPill extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: background,
+          color: gradient == null ? background : null,
+          gradient: gradient,
           borderRadius: BorderRadius.circular(10),
-          border: bordered
-              ? Border.all(color: _greenDark.withValues(alpha: 0.4))
+          border: borderColor != null
+              ? Border.all(color: borderColor!)
               : null,
         ),
         child: Text(

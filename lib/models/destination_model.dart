@@ -46,7 +46,21 @@ class DestinationModel {
   final String     province;
   final String     district;
   final String     imageUrl;
-  final bool       isPopular;   // ← controla el tamaño del marcador
+  final bool       isPopular;
+
+  // ── Google Places ──────────────────────────────────
+  final String? googlePlaceId;
+  final String? googleTypes;
+  final String? googleFormattedAddress;
+  final double? googleRating;
+  final double? googleUserRatingsTotal;
+  final String? fuenteGeocodificacion;
+  final String? consultaUtilizada;
+
+  // ── Ranking ────────────────────────────────────────
+  final double? rankingScore;
+  final int?    ranking; // Posición global (1=mejor). null si sin score.
+
   final RouteModel? route;
 
   const DestinationModel({
@@ -60,10 +74,22 @@ class DestinationModel {
     required this.district,
     required this.imageUrl,
     required this.isPopular,
+    this.googlePlaceId,
+    this.googleTypes,
+    this.googleFormattedAddress,
+    this.googleRating,
+    this.googleUserRatingsTotal,
+    this.fuenteGeocodificacion,
+    this.consultaUtilizada,
+    this.rankingScore,
+    this.ranking,
     this.route,
   });
 
   bool get hasRoute => route != null && route!.coordinates.isNotEmpty;
+
+  /// True si está en el top 15 global
+  bool get isTop15 => ranking != null && ranking! <= 15;
 
   /// Texto de ubicación formateado para mostrar en la card
   String get locationLabel {
@@ -85,6 +111,18 @@ class DestinationModel {
       district:    json['district']    as String? ?? '',
       imageUrl:    json['image_url']   as String? ?? '',
       isPopular:   json['is_popular']  as bool? ?? false,
+      // Google Places
+      googlePlaceId:          json['google_place_id']          as String?,
+      googleTypes:            json['google_types']             as String?,
+      googleFormattedAddress: json['google_formatted_address'] as String?,
+      googleRating:           (json['google_rating'] as num?)?.toDouble(),
+      googleUserRatingsTotal: (json['google_user_ratings_total'] as num?)?.toDouble(),
+      fuenteGeocodificacion:  json['fuente_geocodificacion']   as String?,
+      consultaUtilizada:      json['consulta_utilizada']       as String?,
+      // Ranking
+      rankingScore: (json['ranking_score'] as num?)?.toDouble(),
+      ranking:      json['ranking']        as int?,
+      // Ruta
       route: json['route'] != null
           ? RouteModel.fromJson(json['route'] as Map<String, dynamic>)
           : null,
