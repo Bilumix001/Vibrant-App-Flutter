@@ -4,11 +4,11 @@
 // future. If not, the values below would default to using the project name when this becomes a
 // 'flutter create' template.
 
-// The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = demo
+// Application name
+PRODUCT_NAME = Vibrant App
 
-// The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.demo
+// Application bundle identifier
+PRODUCT_BUNDLE_IDENTIFIER = com.vibrant.app
 
-// The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+// Copyright
+PRODUCT_COPYRIGHT = Copyright © 2026 Vibrant Perú SAC. All rights reserved.
